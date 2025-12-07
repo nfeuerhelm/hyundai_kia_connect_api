@@ -3,46 +3,47 @@
 # pylint:disable=logging-fstring-interpolation,missing-class-docstring,missing-function-docstring,line-too-long,invalid-name
 
 import datetime as dt
-from datetime import timedelta
 import logging
+import typing as ty
+from datetime import timedelta
 
-from .exceptions import APIError
 from .ApiImpl import (
     ApiImpl,
     ClimateRequestOptions,
-    WindowRequestOptions,
     ScheduleChargingClimateRequestOptions,
+    WindowRequestOptions,
 )
-from .HyundaiBlueLinkApiUSA import HyundaiBlueLinkApiUSA
-from .HyundaiBlueLinkApiBR import HyundaiBlueLinkApiBR
-from .KiaUvoApiUSA import KiaUvoApiUSA
-from .KiaUvoApiCA import KiaUvoApiCA
-from .KiaUvoApiEU import KiaUvoApiEU
-from .KiaUvoApiCN import KiaUvoApiCN
-from .KiaUvoApiAU import KiaUvoApiAU
-from .KiaUvoApiIN import KiaUvoApiIN
-from .Token import Token
-from .Vehicle import Vehicle
 from .const import (
     BRAND_GENESIS,
     BRAND_HYUNDAI,
     BRAND_KIA,
     BRANDS,
+    CHARGE_PORT_ACTION,
     DOMAIN,
+    ORDER_STATUS,
     REGION_AUSTRALIA,
     REGION_BRAZIL,
     REGION_CANADA,
-    REGION_EUROPE,
-    REGION_USA,
     REGION_CHINA,
-    REGION_NZ,
+    REGION_EUROPE,
     REGION_INDIA,
+    REGION_NZ,
+    REGION_USA,
     REGIONS,
-    VEHICLE_LOCK_ACTION,
-    CHARGE_PORT_ACTION,
-    ORDER_STATUS,
     VALET_MODE_ACTION,
+    VEHICLE_LOCK_ACTION,
 )
+from .exceptions import APIError
+from .HyundaiBlueLinkApiBR import HyundaiBlueLinkApiBR
+from .HyundaiBlueLinkApiUSA import HyundaiBlueLinkApiUSA
+from .KiaUvoApiAU import KiaUvoApiAU
+from .KiaUvoApiCA import KiaUvoApiCA
+from .KiaUvoApiCN import KiaUvoApiCN
+from .KiaUvoApiEU import KiaUvoApiEU
+from .KiaUvoApiIN import KiaUvoApiIN
+from .KiaUvoApiUSA import KiaUvoApiUSA
+from .Token import Token
+from .Vehicle import Vehicle
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -60,6 +61,7 @@ class VehicleManager:
         geocode_provider: int = 1,
         geocode_api_key: str = None,
         language: str = "en",
+        otp_handler: ty.Callable[[dict], dict] | None = None,
     ):
         self.region: int = region
         self.brand: int = brand
@@ -71,6 +73,7 @@ class VehicleManager:
         self.pin: str = pin
         self.language: str = language
         self.geocode_api_key: str = geocode_api_key
+        self.otp_handler = otp_handler
 
         self.api: ApiImpl = self.get_implementation_by_region_brand(
             self.region, self.brand, self.language
@@ -81,7 +84,12 @@ class VehicleManager:
         self.vehicles_valid = False
 
     def initialize(self) -> None:
-        self.token: Token = self.api.login(self.username, self.password)
+        self.token: Token = self.api.login(
+            self.username,
+            self.password,
+            token=self.token,
+            otp_handler=self.otp_handler,
+        )
         self.token.pin = self.pin
         self.initialize_vehicles()
 
@@ -151,15 +159,28 @@ class VehicleManager:
     def check_and_refresh_token(self) -> bool:
         if self.token is None:
             self.initialize()
-        elif not self.vehicles_valid:
-            self.initialize_vehicles()
-        if (
-            self.token.valid_until - timedelta(seconds=10)
-            <= dt.datetime.now(dt.timezone.utc)
-            or self.api.test_token(self.token) is False
-        ):
+        now_utc = dt.datetime.now(dt.timezone.utc)
+        grace_period = timedelta(seconds=10)
+        min_supported_datetime = dt.datetime.min.replace(tzinfo=dt.timezone.utc)
+        valid_until = self.token.valid_until
+        token_expired = False
+        if not isinstance(valid_until, dt.datetime):
+            token_expired = True
+        else:
+            if valid_until.tzinfo is None:
+                valid_until = valid_until.replace(tzinfo=dt.timezone.utc)
+            if valid_until <= min_supported_datetime + grace_period:
+                token_expired = True
+            else:
+                token_expired = valid_until - grace_period <= now_utc
+        if token_expired or self.api.test_token(self.token) is False:
             _LOGGER.debug(f"{DOMAIN} - Refresh token expired")
-            self.token: Token = self.api.login(self.username, self.password)
+            self.token: Token = self.api.login(
+                self.username,
+                self.password,
+                token=self.token,
+                otp_handler=self.otp_handler,
+            )
             self.token.pin = self.pin
             self.vehicles = self.api.refresh_vehicles(self.token, self.vehicles)
             return True

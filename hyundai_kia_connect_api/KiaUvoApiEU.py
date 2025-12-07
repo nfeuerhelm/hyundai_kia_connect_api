@@ -8,6 +8,7 @@ import datetime as dt
 import logging
 import uuid
 import re
+import typing as ty
 from urllib.parse import parse_qs, urlparse
 
 import requests
@@ -176,7 +177,13 @@ class KiaUvoApiEU(ApiImplType1):
                 + "&state=$service_id:$user_id"
             )
 
-    def login(self, username: str, password: str) -> Token:
+    def login(
+        self,
+        username: str,
+        password: str,
+        token: Token | None = None,
+        otp_handler: ty.Callable[[dict], dict] | None = None,
+    ) -> Token:
         stamp = self._get_stamp()
         device_id = self._get_device_id(stamp)
         cookies = self._get_cookies()
@@ -347,6 +354,34 @@ class KiaUvoApiEU(ApiImplType1):
         vehicle.rear_right_seat_status = SEAT_STATUS[
             get_child_value(state, "vehicleStatus.seatHeaterVentState.rrSeatHeatState")
         ]
+        # lamp wire status (nested)
+        vehicle.headlamp_status = get_child_value(
+            state, "vehicleStatus.lampWireStatus.headLamp.headLampStatus"
+        )
+        vehicle.headlamp_left_low = get_child_value(
+            state, "vehicleStatus.lampWireStatus.headLamp.leftLowLamp"
+        )
+        vehicle.headlamp_right_low = get_child_value(
+            state, "vehicleStatus.lampWireStatus.headLamp.rightLowLamp"
+        )
+        vehicle.stop_lamp_left = get_child_value(
+            state, "vehicleStatus.lampWireStatus.stopLamp.leftLamp"
+        )
+        vehicle.stop_lamp_right = get_child_value(
+            state, "vehicleStatus.lampWireStatus.stopLamp.rightLamp"
+        )
+        vehicle.turn_signal_left_front = get_child_value(
+            state, "vehicleStatus.lampWireStatus.turnSignalLamp.leftFrontLamp"
+        )
+        vehicle.turn_signal_right_front = get_child_value(
+            state, "vehicleStatus.lampWireStatus.turnSignalLamp.rightFrontLamp"
+        )
+        vehicle.turn_signal_left_rear = get_child_value(
+            state, "vehicleStatus.lampWireStatus.turnSignalLamp.leftRearLamp"
+        )
+        vehicle.turn_signal_right_rear = get_child_value(
+            state, "vehicleStatus.lampWireStatus.turnSignalLamp.rightRearLamp"
+        )
         vehicle.is_locked = get_child_value(state, "vehicleStatus.doorLock")
         vehicle.front_left_door_is_open = get_child_value(
             state, "vehicleStatus.doorOpen.frontLeft"
@@ -777,9 +812,9 @@ class KiaUvoApiEU(ApiImplType1):
             ).json()
             _LOGGER.debug(f"{DOMAIN} - _get_location response: {response}")
             _check_response_for_errors(response)
-            return response["resMsg"]["gpsDetail"]
-        except Exception:
-            _LOGGER.warning(f"{DOMAIN} - _get_location failed")
+            return response["resMsg"]["coord"]
+        except Exception as e:
+            _LOGGER.error(f"{DOMAIN} - _get_location failed: {e}", exc_info=True)
             return None
 
     def _get_forced_vehicle_state(self, token: Token, vehicle: Vehicle) -> dict:
