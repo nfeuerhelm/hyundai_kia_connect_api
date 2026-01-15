@@ -3,7 +3,6 @@
 # pylint:disable=unnecessary-pass,missing-class-docstring,invalid-name,missing-function-docstring,wildcard-import,unused-wildcard-import,unused-argument,missing-timeout,logging-fstring-interpolation
 import datetime as dt
 import logging
-import typing as ty
 from dataclasses import dataclass
 
 import requests
@@ -27,6 +26,7 @@ from .const import (
     GEO_LOCATION_PROVIDERS,
     OPENSTREETMAP,
     GOOGLE,
+    OTP_NOTIFY_TYPE,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -55,6 +55,16 @@ class WindowRequestOptions:
 
 
 @dataclass
+class OTPRequest:
+    request_id: str | None
+    otp_key: str | None
+    has_email: bool | None
+    has_sms: bool | None
+    email: str | None
+    sms: str | None
+
+
+@dataclass
 class ScheduleChargingClimateRequestOptions:
     @dataclass
     class DepartureOptions:
@@ -79,7 +89,6 @@ class ApiImpl:
     temperature_range = None
     previous_latitude: float = None
     previous_longitude: float = None
-    supports_otp: bool = False
 
     def __init__(self) -> None:
         """Initialize."""
@@ -88,10 +97,24 @@ class ApiImpl:
         self,
         username: str,
         password: str,
-        token: Token | None = None,
-        otp_handler: ty.Callable[[dict], dict] | None = None,
+        pin: str | None = None,
+    ) -> Token | OTPRequest:
+        """Login into cloud endpoints and return Token or OTP Details if OTP is triggered"""
+        pass
+
+    def send_otp(self, otp_request: OTPRequest, notify_type: OTP_NOTIFY_TYPE) -> None:
+        """Sends OTP to the user via selected destination and via"""
+        pass
+
+    def verify_otp_and_complete_login(
+        self,
+        username: str,
+        password: str,
+        otp_code: str,
+        otp_request: OTPRequest,
+        pin: str | None = None,
     ) -> Token:
-        """Login into cloud endpoints and return Token"""
+        """Confirms OTP code sent to the user"""
         pass
 
     def get_vehicles(self, token: Token) -> list[Vehicle]:
@@ -302,3 +325,8 @@ class ApiImpl:
         Set the vehicle to load limit. Returns the tracking ID
         """
         pass
+
+    def refresh_access_token(self, token: Token) -> Token | OTPRequest:
+        """Refresh the token using the refresh token"""
+        # By default, just call login again, ideally use the refresh token flow
+        return self.login(token.username, token.password, token.pin)

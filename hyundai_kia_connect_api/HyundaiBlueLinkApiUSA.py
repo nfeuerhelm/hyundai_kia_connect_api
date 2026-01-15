@@ -12,7 +12,7 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.ssl_ import create_urllib3_context
 
-from hyundai_kia_connect_api.exceptions import APIError
+from hyundai_kia_connect_api.exceptions import APIError, AuthenticationError
 
 from .ApiImpl import ApiImpl, ClimateRequestOptions
 from .const import (
@@ -128,8 +128,8 @@ class HyundaiBlueLinkApiUSA(ApiImpl):
         self,
         username: str,
         password: str,
-        token: Token | None = None,
         otp_handler: ty.Callable[[dict], dict] | None = None,
+        pin: str | None = None,
     ) -> Token:
         # Sign In with Email and Password and Get Authorization Code
         url = self.LOGIN_API + "oauth/token"
@@ -138,6 +138,10 @@ class HyundaiBlueLinkApiUSA(ApiImpl):
         response = self.sessions.post(url, json=data, headers=self.API_HEADERS)
         _LOGGER.debug(f"{DOMAIN} - Sign In Response {response.text}")
         response = response.json()
+        if response.get("access_token") is None:
+            raise AuthenticationError(
+                "Login failed: " + response.get("errorMessage", "")
+            )
         access_token = response["access_token"]
         refresh_token = response["refresh_token"]
         expires_in = float(response["expires_in"])
@@ -152,6 +156,7 @@ class HyundaiBlueLinkApiUSA(ApiImpl):
             access_token=access_token,
             refresh_token=refresh_token,
             valid_until=valid_until,
+            pin=pin,
         )
 
     def _get_vehicle_details(self, token: Token, vehicle: Vehicle):
